@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fsSync from "node:fs";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -32,6 +33,18 @@ export {
 } from "./auth-store.js";
 
 let credsSaveQueue: Promise<void> = Promise.resolve();
+
+function resolveWhatsAppProxyAgent() {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (!proxyUrl) {
+    return undefined;
+  }
+  try {
+    return new HttpsProxyAgent(proxyUrl);
+  } catch {
+    return undefined;
+  }
+}
 function enqueueSaveCreds(
   authDir: string,
   saveCreds: () => Promise<void> | void,
@@ -105,6 +118,7 @@ export async function createWaSocket(
   maybeRestoreCredsFromBackup(authDir);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
+  const proxyAgent = resolveWhatsAppProxyAgent();
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -116,6 +130,7 @@ export async function createWaSocket(
     browser: ["openclaw", "cli", VERSION],
     syncFullHistory: false,
     markOnlineOnConnect: false,
+    ...(proxyAgent ? { agent: proxyAgent, fetchAgent: proxyAgent } : {}),
   });
 
   sock.ev.on("creds.update", () => enqueueSaveCreds(authDir, saveCreds, sessionLogger));
