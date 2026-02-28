@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 ROOT="/Users/lizhibo/.openclaw/workspace/tmp-openclaw-src"
-PIDFILE="$ROOT/.gateway.pid"
-LOGFILE="/tmp/openclaw-gateway-src.log"
+SCRIPTS="$ROOT/scripts"
+PLIST="$HOME/Library/LaunchAgents/ai.openclaw.gateway-src.plist"
+LABEL="ai.openclaw.gateway-src"
 
-if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-  echo "gateway already running: pid $(cat "$PIDFILE")"
-  exit 0
-fi
+"$SCRIPTS/gw-ha-install.sh" >/dev/null
 
-cd "$ROOT"
-nohup env -u ALL_PROXY HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 \
-  node dist/index.js gateway --port 18789 >"$LOGFILE" 2>&1 &
-echo $! > "$PIDFILE"
-echo "gateway started: pid $(cat "$PIDFILE"), log $LOGFILE"
+launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
+
+echo "gateway HA service started ($LABEL)"
+"$SCRIPTS/gw-status.sh"

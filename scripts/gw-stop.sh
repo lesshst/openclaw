@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="/Users/lizhibo/.openclaw/workspace/tmp-openclaw-src"
-PIDFILE="$ROOT/.gateway.pid"
 
-if [[ -f "$PIDFILE" ]]; then
-  PID="$(cat "$PIDFILE")"
-  kill "$PID" 2>/dev/null || true
-  rm -f "$PIDFILE"
-fi
+LABEL="ai.openclaw.gateway-src"
+UID_NUM="$(id -u)"
+launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
+launchctl disable "gui/$UID_NUM/$LABEL" 2>/dev/null || true
 
-pkill -f "node dist/index.js gateway --port 18789" || true
-echo "gateway stopped"
+# best-effort cleanup for old nohup mode
+pkill -f "node dist/index.js gateway --port 18789" 2>/dev/null || true
+rm -f "/Users/lizhibo/.openclaw/workspace/tmp-openclaw-src/.gateway.pid"
+
+echo "gateway stopped ($LABEL)"
