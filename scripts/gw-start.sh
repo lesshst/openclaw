@@ -11,6 +11,8 @@ OWNER_CWD=""
 SERVICE_DUMP=""
 SERVICE_PID=""
 OFFICIAL_DUMP=""
+READY_TIMEOUT_SEC="${OPENCLAW_GATEWAY_READY_TIMEOUT_SEC:-30}"
+MAX_ATTEMPTS=$((READY_TIMEOUT_SEC * 2))
 
 if [[ "$LABEL" != "$OFFICIAL_LABEL" ]]; then
   OFFICIAL_DUMP="$(launchctl_dump "$OFFICIAL_TARGET")"
@@ -47,7 +49,7 @@ launchctl enable "$TARGET" 2>/dev/null || true
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "$TARGET"
 
-for _ in {1..20}; do
+for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
   if "$SCRIPT_DIR/gw-status.sh" >/dev/null 2>&1; then
     echo "gateway HA service started ($LABEL)"
     "$SCRIPT_DIR/gw-status.sh"
