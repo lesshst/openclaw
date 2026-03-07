@@ -1,10 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/lizhibo/.openclaw/workspace/tmp-openclaw-src"
-PLIST="$HOME/Library/LaunchAgents/ai.openclaw.gateway-src.plist"
-LOG_OUT="/tmp/openclaw-gateway-src.log"
-LOG_ERR="/tmp/openclaw-gateway-src.err.log"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gw-common.sh"
+
+require_dist_entry
+
+if [[ -z "$NODE_BIN" ]]; then
+  echo "node not found in PATH" >&2
+  echo "set OPENCLAW_GATEWAY_NODE_BIN or install Node before using gw-ha-install.sh" >&2
+  exit 1
+fi
+
+ROOT_XML="$(xml_escape "$ROOT")"
+LABEL_XML="$(xml_escape "$LABEL")"
+PATH_XML="$(xml_escape "$PATH_VALUE")"
+HOME_XML="$(xml_escape "$HOME")"
+ALL_PROXY_XML="$(xml_escape "$ALL_PROXY_VALUE")"
+HTTP_PROXY_XML="$(xml_escape "$HTTP_PROXY_VALUE")"
+HTTPS_PROXY_XML="$(xml_escape "$HTTPS_PROXY_VALUE")"
+NO_PROXY_XML="$(xml_escape "$NO_PROXY_VALUE")"
+NODE_XML="$(xml_escape "$NODE_BIN")"
+DIST_ENTRY_XML="$(xml_escape "$DIST_ENTRY")"
+PORT_XML="$(xml_escape "$PORT")"
+LOG_OUT_XML="$(xml_escape "$LOG_OUT")"
+LOG_ERR_XML="$(xml_escape "$LOG_ERR")"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<EOF
@@ -13,26 +32,29 @@ cat > "$PLIST" <<EOF
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>ai.openclaw.gateway-src</string>
+  <string>$LABEL_XML</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/env</string>
     <string>-i</string>
-    <string>PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-    <string>HOME=$HOME</string>
-    <string>ALL_PROXY=</string>
-    <string>HTTP_PROXY=http://127.0.0.1:7897</string>
-    <string>HTTPS_PROXY=http://127.0.0.1:7897</string>
-    <string>/usr/local/bin/node</string>
-    <string>dist/index.js</string>
+    <string>PATH=$PATH_XML</string>
+    <string>HOME=$HOME_XML</string>
+    <string>ALL_PROXY=$ALL_PROXY_XML</string>
+    <string>HTTP_PROXY=$HTTP_PROXY_XML</string>
+    <string>HTTPS_PROXY=$HTTPS_PROXY_XML</string>
+    <string>NO_PROXY=$NO_PROXY_XML</string>
+    <string>$NODE_XML</string>
+    <string>$DIST_ENTRY_XML</string>
     <string>gateway</string>
+    <string>--bind</string>
+    <string>loopback</string>
     <string>--port</string>
-    <string>18789</string>
+    <string>$PORT_XML</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>$ROOT</string>
+  <string>$ROOT_XML</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -42,17 +64,11 @@ cat > "$PLIST" <<EOF
   <integer>5</integer>
 
   <key>StandardOutPath</key>
-  <string>$LOG_OUT</string>
+  <string>$LOG_OUT_XML</string>
   <key>StandardErrorPath</key>
-  <string>$LOG_ERR</string>
+  <string>$LOG_ERR_XML</string>
 </dict>
 </plist>
 EOF
-
-# Prefer Homebrew node path if available
-if command -v node >/dev/null 2>&1; then
-  NODE_PATH="$(command -v node)"
-  /usr/bin/sed -i '' "s#<string>/usr/local/bin/node</string>#<string>${NODE_PATH//\//\\/}</string>#" "$PLIST"
-fi
 
 echo "installed launchd plist: $PLIST"
