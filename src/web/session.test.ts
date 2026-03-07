@@ -65,6 +65,7 @@ describe("web session", () => {
     resetLogger();
     setLoggerOverride(null);
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("creates WA socket with QR handler", async () => {
@@ -83,6 +84,21 @@ describe("web session", () => {
     sock.ev.emit("creds.update", {});
     await flushCredsUpdate();
     expect(saveCreds).toHaveBeenCalled();
+  });
+
+  it("uses lowercase proxy env vars when uppercase variants are unset", async () => {
+    vi.stubEnv("HTTPS_PROXY", "");
+    vi.stubEnv("HTTP_PROXY", "");
+    vi.stubEnv("https_proxy", "http://127.0.0.1:7897");
+
+    await createWaSocket(false, false);
+
+    const makeWASocket = baileys.makeWASocket as ReturnType<typeof vi.fn>;
+    const passed = makeWASocket.mock.calls[0]?.[0] as
+      | { agent?: unknown; fetchAgent?: unknown }
+      | undefined;
+    expect(passed?.agent).toBeTruthy();
+    expect(passed?.fetchAgent).toBe(passed?.agent);
   });
 
   it("waits for connection open", async () => {

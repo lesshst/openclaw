@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import fsSync from "node:fs";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -8,6 +7,7 @@ import {
   makeWASocket,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import qrcode from "qrcode-terminal";
 import { formatCliCommand } from "../cli/command-format.js";
 import { danger, success } from "../globals.js";
@@ -35,7 +35,14 @@ export {
 let credsSaveQueue: Promise<void> = Promise.resolve();
 
 function resolveWhatsAppProxyAgent() {
-  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  const proxyUrl = [
+    process.env.HTTPS_PROXY,
+    process.env.https_proxy,
+    process.env.HTTP_PROXY,
+    process.env.http_proxy,
+  ]
+    .find((value) => typeof value === "string" && value.trim().length > 0)
+    ?.trim();
   if (!proxyUrl) {
     return undefined;
   }
