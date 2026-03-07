@@ -15,6 +15,7 @@ import { AUTH_STORE_LOCK_OPTIONS, log } from "./constants.js";
 import { resolveTokenExpiryState } from "./credential-state.js";
 import { formatAuthDoctorHint } from "./doctor.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
+import { listProfilesForProvider } from "./profiles.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
 import type { AuthProfileStore } from "./types.js";
@@ -118,13 +119,30 @@ type ResolveApiKeyForProfileParams = {
 
 type SecretDefaults = NonNullable<OpenClawConfig["secrets"]>["defaults"];
 
+function shouldAutoSyncMainOAuthCredential(params: {
+  store: AuthProfileStore;
+  provider: string;
+  agentDir?: string;
+}): boolean {
+  if (!params.agentDir) {
+    return false;
+  }
+  return listProfilesForProvider(params.store, params.provider).length <= 1;
+}
+
 function adoptNewerMainOAuthCredential(params: {
   store: AuthProfileStore;
   profileId: string;
   agentDir?: string;
   cred: OAuthCredentials & { type: "oauth"; provider: string; email?: string };
 }): (OAuthCredentials & { type: "oauth"; provider: string; email?: string }) | null {
-  if (!params.agentDir) {
+  if (
+    !shouldAutoSyncMainOAuthCredential({
+      store: params.store,
+      provider: params.cred.provider,
+      agentDir: params.agentDir,
+    })
+  ) {
     return null;
   }
   try {
@@ -432,7 +450,13 @@ export async function resolveApiKeyForProfile(
     }
 
     // Fallback: if this is a secondary agent, try using the main agent's credentials
-    if (params.agentDir) {
+    if (
+      shouldAutoSyncMainOAuthCredential({
+        store: refreshedStore,
+        provider: cred.provider,
+        agentDir: params.agentDir,
+      })
+    ) {
       try {
         const mainStore = ensureAuthProfileStore(undefined); // main agent (no agentDir)
         const mainCred = mainStore.profiles[profileId];

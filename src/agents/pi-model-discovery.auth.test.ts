@@ -126,6 +126,38 @@ describe("discoverAuthStorage", () => {
     });
   });
 
+  it("scrubs legacy oauth entries when runtime auth-profiles already provide that provider", async () => {
+    await withAgentDir(async (agentDir) => {
+      saveAuthProfileStore(
+        {
+          version: 1,
+          profiles: {
+            "openai-codex:default": {
+              type: "oauth",
+              provider: "openai-codex",
+              access: "runtime-oauth-access",
+              refresh: "runtime-oauth-refresh",
+              expires: Date.now() + 60_000,
+            },
+          },
+        },
+        agentDir,
+      );
+      await writeLegacyAuthJson(agentDir, {
+        "openai-codex": {
+          type: "oauth",
+          access: "legacy-oauth-access",
+          refresh: "legacy-oauth-refresh",
+          expires: Date.now() + 60_000,
+        },
+      });
+
+      discoverAuthStorage(agentDir);
+
+      expect(await pathExists(path.join(agentDir, "auth.json"))).toBe(false);
+    });
+  });
+
   it("preserves legacy auth.json when auth store is forced read-only", async () => {
     await withAgentDir(async (agentDir) => {
       const previous = process.env.OPENCLAW_AUTH_STORE_READONLY;

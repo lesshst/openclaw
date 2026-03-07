@@ -204,6 +204,69 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
     });
   });
 
+  it("does not adopt main token when the provider already has multiple profiles", async () => {
+    const profileId = "anthropic:default";
+    const alternateProfileId = "anthropic:work";
+    const now = Date.now();
+    const secondaryExpiry = now + 30 * 60 * 1000;
+    const alternateExpiry = now + 90 * 60 * 1000;
+    const mainExpiry = now + 2 * 60 * 60 * 1000;
+
+    await writeAuthProfilesStore(secondaryAgentDir, {
+      version: 1,
+      profiles: {
+        [profileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "secondary-access-token",
+          refresh: "secondary-refresh-token",
+          expires: secondaryExpiry,
+        },
+        [alternateProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "secondary-work-access-token",
+          refresh: "secondary-work-refresh-token",
+          expires: alternateExpiry,
+          email: "work@example.com",
+        },
+      },
+      order: {
+        anthropic: [profileId, alternateProfileId],
+      },
+      lastGood: {
+        anthropic: profileId,
+      },
+    });
+
+    await writeAuthProfilesStore(
+      mainAgentDir,
+      createOauthStore({
+        profileId,
+        access: "main-newer-access-token",
+        refresh: "main-newer-refresh-token",
+        expires: mainExpiry,
+      }),
+    );
+
+    const result = await resolveFromSecondaryAgent(profileId);
+
+    expect(result?.apiKey).toBe("secondary-access-token");
+
+    const updatedSecondaryStore = JSON.parse(
+      await fs.readFile(path.join(secondaryAgentDir, "auth-profiles.json"), "utf8"),
+    ) as AuthProfileStore;
+    expect(updatedSecondaryStore.profiles[profileId]).toMatchObject({
+      access: "secondary-access-token",
+      expires: secondaryExpiry,
+    });
+    expect(updatedSecondaryStore.profiles[alternateProfileId]).toMatchObject({
+      access: "secondary-work-access-token",
+      expires: alternateExpiry,
+      email: "work@example.com",
+    });
+  });
+
   it("adopts main token when secondary expires is NaN/malformed", async () => {
     const profileId = "anthropic:claude-cli";
     const now = Date.now();
@@ -232,6 +295,71 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
     const result = await resolveFromSecondaryAgent(profileId);
 
     expect(result?.apiKey).toBe("main-fresh-token");
+  });
+
+  it("does not inherit main token on refresh failure when the provider already has multiple profiles", async () => {
+    const profileId = "anthropic:default";
+    const alternateProfileId = "anthropic:work";
+    const now = Date.now();
+    const expiredTime = now - 60 * 60 * 1000;
+    const alternateExpiry = now + 60 * 60 * 1000;
+    const mainExpiry = now + 2 * 60 * 60 * 1000;
+
+    await writeAuthProfilesStore(secondaryAgentDir, {
+      version: 1,
+      profiles: {
+        [profileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "expired-access-token",
+          refresh: "expired-refresh-token",
+          expires: expiredTime,
+        },
+        [alternateProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "secondary-work-access-token",
+          refresh: "secondary-work-refresh-token",
+          expires: alternateExpiry,
+          email: "work@example.com",
+        },
+      },
+      order: {
+        anthropic: [profileId, alternateProfileId],
+      },
+      lastGood: {
+        anthropic: alternateProfileId,
+      },
+    });
+
+    await writeAuthProfilesStore(
+      mainAgentDir,
+      createOauthStore({
+        profileId,
+        access: "main-fresh-access-token",
+        refresh: "main-fresh-refresh-token",
+        expires: mainExpiry,
+      }),
+    );
+
+    stubOAuthRefreshFailure();
+
+    const result = await resolveFromSecondaryAgent(profileId);
+
+    expect(result?.apiKey).toBe("secondary-work-access-token");
+
+    const updatedSecondaryStore = JSON.parse(
+      await fs.readFile(path.join(secondaryAgentDir, "auth-profiles.json"), "utf8"),
+    ) as AuthProfileStore;
+    expect(updatedSecondaryStore.profiles[profileId]).toMatchObject({
+      access: "expired-access-token",
+      expires: expiredTime,
+    });
+    expect(updatedSecondaryStore.profiles[alternateProfileId]).toMatchObject({
+      access: "secondary-work-access-token",
+      expires: alternateExpiry,
+      email: "work@example.com",
+    });
   });
 
   it("accepts mode=token + type=oauth for legacy compatibility", async () => {

@@ -6,6 +6,7 @@ import type {
   ModelRegistry as PiModelRegistry,
 } from "@mariozechner/pi-coding-agent";
 import { ensureAuthProfileStore } from "./auth-profiles.js";
+import { normalizeProviderId } from "./model-selection.js";
 import { resolvePiCredentialMapFromStore, type PiCredentialMap } from "./pi-auth-credentials.js";
 
 const PiAuthStorageClass = PiCodingAgent.AuthStorage;
@@ -46,11 +47,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function scrubLegacyStaticAuthJsonEntries(pathname: string): void {
+function scrubLegacyStaticAuthJsonEntries(pathname: string, runtimeProviders: Set<string>): void {
   if (process.env.OPENCLAW_AUTH_STORE_READONLY === "1") {
     return;
   }
   if (!fs.existsSync(pathname)) {
+    return;
+  }
+  if (runtimeProviders.size === 0) {
     return;
   }
 
@@ -66,6 +70,11 @@ function scrubLegacyStaticAuthJsonEntries(pathname: string): void {
 
   let changed = false;
   for (const [provider, value] of Object.entries(parsed)) {
+    if (runtimeProviders.has(normalizeProviderId(provider))) {
+      delete parsed[provider];
+      changed = true;
+      continue;
+    }
     if (!isRecord(value)) {
       continue;
     }
@@ -143,7 +152,7 @@ function resolvePiCredentials(agentDir: string): PiCredentialMap {
 export function discoverAuthStorage(agentDir: string): PiAuthStorage {
   const credentials = resolvePiCredentials(agentDir);
   const authPath = path.join(agentDir, "auth.json");
-  scrubLegacyStaticAuthJsonEntries(authPath);
+  scrubLegacyStaticAuthJsonEntries(authPath, new Set(Object.keys(credentials)));
   return createAuthStorage(PiAuthStorageClass, authPath, credentials);
 }
 
