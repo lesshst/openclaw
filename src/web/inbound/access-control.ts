@@ -19,6 +19,7 @@ export type InboundAccessControlResult = {
   shouldMarkRead: boolean;
   isSelfChat: boolean;
   resolvedAccountId: string;
+  reason?: string;
 };
 
 const PAIRING_REPLY_HISTORY_GRACE_MS = 30_000;
@@ -41,6 +42,7 @@ function resolveWhatsAppRuntimeGroupPolicy(params: {
 export async function checkInboundAccessControl(params: {
   accountId: string;
   from: string;
+  fromResolved?: boolean;
   selfE164: string | null;
   senderE164: string | null;
   group: boolean;
@@ -99,7 +101,7 @@ export async function checkInboundAccessControl(params: {
     accountId: account.accountId,
     log: (message) => logVerbose(message),
   });
-  const normalizedDmSender = normalizeE164(params.from);
+  const normalizedDmSender = params.fromResolved === false ? null : normalizeE164(params.from);
   const normalizedGroupSender =
     typeof params.senderE164 === "string" ? normalizeE164(params.senderE164) : null;
   const access = resolveDmGroupAccessWithLists({
@@ -125,7 +127,7 @@ export async function checkInboundAccessControl(params: {
       }
       return params.group
         ? Boolean(normalizedGroupSender && normalizedEntrySet.has(normalizedGroupSender))
-        : normalizedEntrySet.has(normalizedDmSender);
+        : Boolean(normalizedDmSender && normalizedEntrySet.has(normalizedDmSender));
     },
   });
   if (params.group && access.decision !== "allow") {
@@ -143,11 +145,24 @@ export async function checkInboundAccessControl(params: {
       shouldMarkRead: false,
       isSelfChat,
       resolvedAccountId: account.accountId,
+      reason: access.reason,
     };
   }
 
   // DM access control (secure defaults): "pairing" (default) / "allowlist" / "open" / "disabled".
   if (!params.group) {
+    if (params.fromResolved === false && dmPolicy !== "open") {
+      logVerbose(
+        `Blocked dm with unresolved sender identity ${params.remoteJid} (dmPolicy=${dmPolicy})`,
+      );
+      return {
+        allowed: false,
+        shouldMarkRead: false,
+        isSelfChat,
+        resolvedAccountId: account.accountId,
+        reason: "dm-sender-unresolved",
+      };
+    }
     if (params.isFromMe && !isSamePhone) {
       logVerbose("Skipping outbound DM (fromMe); no pairing reply needed.");
       return {
@@ -155,6 +170,7 @@ export async function checkInboundAccessControl(params: {
         shouldMarkRead: false,
         isSelfChat,
         resolvedAccountId: account.accountId,
+        reason: "outbound-dm-fromme",
       };
     }
     if (access.decision === "block" && access.reason === "dmPolicy=disabled") {
@@ -164,6 +180,7 @@ export async function checkInboundAccessControl(params: {
         shouldMarkRead: false,
         isSelfChat,
         resolvedAccountId: account.accountId,
+        reason: access.reason,
       };
     }
     if (access.decision === "pairing" && !isSamePhone) {
@@ -201,6 +218,7 @@ export async function checkInboundAccessControl(params: {
         shouldMarkRead: false,
         isSelfChat,
         resolvedAccountId: account.accountId,
+        reason: access.reason,
       };
     }
     if (access.decision !== "allow") {
@@ -210,6 +228,7 @@ export async function checkInboundAccessControl(params: {
         shouldMarkRead: false,
         isSelfChat,
         resolvedAccountId: account.accountId,
+        reason: access.reason,
       };
     }
   }

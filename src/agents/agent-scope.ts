@@ -21,6 +21,11 @@ function stripNullBytes(s: string): string {
   return s.replace(/\0/g, "");
 }
 
+function resolveImplicitAgentWorkspaceDir(agentId: string): string {
+  const workspaceParent = path.dirname(resolveDefaultAgentWorkspaceDir(process.env));
+  return stripNullBytes(path.join(workspaceParent, `workspace-${agentId}`));
+}
+
 export { resolveAgentIdFromSessionKey };
 
 type AgentEntry = NonNullable<NonNullable<OpenClawConfig["agents"]>["list"]>[number];
@@ -267,8 +272,7 @@ export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
     }
     return stripNullBytes(resolveDefaultAgentWorkspaceDir(process.env));
   }
-  const stateDir = resolveStateDir(process.env);
-  return stripNullBytes(path.join(stateDir, `workspace-${id}`));
+  return resolveImplicitAgentWorkspaceDir(id);
 }
 
 function normalizePathForComparison(input: string): string {

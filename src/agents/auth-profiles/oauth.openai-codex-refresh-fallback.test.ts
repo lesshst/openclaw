@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureEnv } from "../../test-utils/env.js";
 import { resolveApiKeyForProfile } from "./oauth.js";
+import { resolveAuthProfileOrder } from "./order.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
   ensureAuthProfileStore,
@@ -133,5 +134,63 @@ describe("resolveApiKeyForProfile openai-codex refresh fallback", () => {
         agentDir,
       }),
     ).rejects.toThrow(/OAuth token refresh failed for openai-codex/);
+  });
+
+  it("disables permanently invalid refresh-token-reused profiles so ordering skips them", async () => {
+    const brokenProfileId = "openai-codex:default";
+    const healthyProfileId = "openai-codex:plus";
+    saveAuthProfileStore(
+      {
+        version: 1,
+        profiles: {
+          [brokenProfileId]: {
+            type: "oauth",
+            provider: "openai-codex",
+            access: "expired-access-token",
+            refresh: "reused-refresh-token",
+            expires: Date.now() - 60_000,
+          },
+          [healthyProfileId]: {
+            type: "oauth",
+            provider: "openai-codex",
+            access: "healthy-access-token",
+            refresh: "healthy-refresh-token",
+            expires: Date.now() + 60_000,
+          },
+        },
+        order: {
+          "openai-codex": [brokenProfileId, healthyProfileId],
+        },
+      },
+      agentDir,
+    );
+    getOAuthApiKeyMock.mockImplementationOnce(async () => {
+      throw new Error(
+        '401 {"error":{"message":"Your refresh token has already been used to generate a new access token. Please try signing in again.","type":"invalid_request_error","code":"refresh_token_reused"}}',
+      );
+    });
+
+    await expect(
+      resolveApiKeyForProfile({
+        store: ensureAuthProfileStore(agentDir),
+        profileId: brokenProfileId,
+        agentDir,
+      }),
+    ).resolves.toEqual({
+      apiKey: "healthy-access-token",
+      provider: "openai-codex",
+      email: undefined,
+    });
+
+    clearRuntimeAuthProfileStoreSnapshots();
+    const reloadedStore = ensureAuthProfileStore(agentDir);
+    expect(reloadedStore.usageStats?.[brokenProfileId]?.disabledReason).toBe("auth_permanent");
+    expect((reloadedStore.usageStats?.[brokenProfileId]?.disabledUntil ?? 0) > Date.now()).toBe(
+      true,
+    );
+    expect(resolveAuthProfileOrder({ store: reloadedStore, provider: "openai-codex" })).toEqual([
+      healthyProfileId,
+      brokenProfileId,
+    ]);
   });
 });

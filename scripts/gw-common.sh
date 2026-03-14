@@ -12,7 +12,28 @@ PLIST="${OPENCLAW_GATEWAY_SRC_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
 LOG_OUT="${OPENCLAW_GATEWAY_SRC_LOG_OUT:-/tmp/openclaw-gateway-src.log}"
 LOG_ERR="${OPENCLAW_GATEWAY_SRC_LOG_ERR:-/tmp/openclaw-gateway-src.err.log}"
 DIST_ENTRY="${OPENCLAW_GATEWAY_SRC_ENTRY:-$ROOT/dist/index.js}"
-NODE_BIN="${OPENCLAW_GATEWAY_NODE_BIN:-$(command -v node || true)}"
+
+resolve_preferred_node_bin() {
+  local current_node nvm_default_alias nvm_default_node
+  current_node="$(command -v node || true)"
+  if [[ -f "$HOME/.nvm/alias/default" ]]; then
+    nvm_default_alias="$(tr -d '[:space:]' < "$HOME/.nvm/alias/default")"
+    if [[ -n "$nvm_default_alias" ]]; then
+      nvm_default_node="$HOME/.nvm/versions/node/${nvm_default_alias}/bin/node"
+      if [[ -x "$nvm_default_node" ]]; then
+        case "$current_node" in
+          ""|/opt/homebrew/bin/node|/usr/local/bin/node|/usr/bin/node)
+            printf '%s\n' "$nvm_default_node"
+            return 0
+            ;;
+        esac
+      fi
+    fi
+  fi
+  printf '%s\n' "$current_node"
+}
+
+NODE_BIN="${OPENCLAW_GATEWAY_NODE_BIN:-$(resolve_preferred_node_bin)}"
 DEFAULT_PATH="$HOME/Library/pnpm:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 if [[ -n "$NODE_BIN" ]]; then
   NODE_BIN_DIR="$(dirname "$NODE_BIN")"

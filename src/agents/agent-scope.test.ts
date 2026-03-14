@@ -422,6 +422,22 @@ describe("resolveAgentConfig", () => {
     expect(workspace).toBe(path.join(path.resolve(home), ".openclaw", "workspace"));
   });
 
+  it("keeps non-default agent workspaces under OPENCLAW_HOME even when OPENCLAW_STATE_DIR is overridden", () => {
+    const home = path.join(path.sep, "srv", "openclaw-home");
+    vi.stubEnv("OPENCLAW_HOME", home);
+    vi.stubEnv("OPENCLAW_STATE_DIR", path.join(path.sep, "tmp", "openclaw-state"));
+
+    const workspace = resolveAgentWorkspaceDir(
+      {
+        agents: {
+          list: [{ id: "main" }],
+        },
+      } as OpenClawConfig,
+      "research",
+    );
+    expect(workspace).toBe(path.join(path.resolve(home), ".openclaw", "workspace-research"));
+  });
+
   it("uses OPENCLAW_HOME for default agentDir", () => {
     const home = path.join(path.sep, "srv", "openclaw-home");
     vi.stubEnv("OPENCLAW_HOME", home);

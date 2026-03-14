@@ -8,6 +8,7 @@ import {
   getAuthDir,
   getSock,
   installWebMonitorInboxUnitTestHooks,
+  mockLoadConfig,
 } from "./monitor-inbox.test-harness.js";
 
 describe("web monitor inbox", () => {
@@ -215,6 +216,47 @@ describe("web monitor inbox", () => {
     expect(getPNForLID).not.toHaveBeenCalled();
 
     await listener.close();
+  });
+
+  it("allows unresolved direct LID JIDs to pass through when dmPolicy=open", async () => {
+    const onMessage = vi.fn(async () => {
+      return;
+    });
+
+    mockLoadConfig.mockReturnValue({
+      channels: {
+        whatsapp: {
+          dmPolicy: "open",
+          allowFrom: ["*"],
+        },
+      },
+      messages: {
+        messagePrefix: undefined,
+        responsePrefix: undefined,
+      },
+    });
+
+    const { listener, sock } = await startInboxMonitor(onMessage);
+    try {
+      const getPNForLID = vi.spyOn(sock.signalRepository.lidMapping, "getPNForLID");
+      const upsert = buildMessageUpsert({
+        id: "lid-open",
+        remoteJid: "777@lid",
+        text: "ping",
+        timestamp: 1_700_000_000,
+        pushName: "Tester",
+      });
+
+      sock.ev.emit("messages.upsert", upsert);
+      await tick();
+
+      expect(getPNForLID).toHaveBeenCalledWith("777@lid");
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ body: "ping", from: "777@lid", to: "+123" }),
+      );
+    } finally {
+      await listener.close();
+    }
   });
 
   it("resolves group participant LID JIDs via Baileys mapping", async () => {

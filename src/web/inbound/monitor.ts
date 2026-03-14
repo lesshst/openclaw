@@ -164,15 +164,37 @@ export async function monitorWebInbox(options: {
     access: Awaited<ReturnType<typeof checkInboundAccessControl>>;
   };
 
+  const logInboundDrop = (
+    reason: string,
+    msg: Pick<WAMessage, "key" | "pushName" | "messageTimestamp">,
+    extra?: Record<string, unknown>,
+  ) => {
+    inboundConsoleLog.info(
+      JSON.stringify({
+        event: "inbound-drop",
+        reason,
+        remoteJid: msg.key?.remoteJid ?? null,
+        participant: msg.key?.participant ?? null,
+        fromMe: Boolean(msg.key?.fromMe),
+        id: msg.key?.id ?? null,
+        pushName: msg.pushName ?? null,
+        messageTimestamp: msg.messageTimestamp ? Number(msg.messageTimestamp) : null,
+        ...extra,
+      }),
+    );
+  };
+
   const normalizeInboundMessage = async (
     msg: WAMessage,
   ): Promise<NormalizedInboundMessage | null> => {
     const id = msg.key?.id ?? undefined;
     const remoteJid = msg.key?.remoteJid;
     if (!remoteJid) {
+      logInboundDrop("missing-remote-jid", msg);
       return null;
     }
     if (remoteJid.endsWith("@status") || remoteJid.endsWith("@broadcast")) {
+      logInboundDrop("status-or-broadcast", msg);
       return null;
     }
 
@@ -180,12 +202,15 @@ export async function monitorWebInbox(options: {
     if (id) {
       const dedupeKey = `${options.accountId}:${remoteJid}:${id}`;
       if (isRecentInboundMessage(dedupeKey)) {
+        logInboundDrop("deduped-recent-message", msg, { dedupeKey });
         return null;
       }
     }
     const participantJid = msg.key?.participant ?? undefined;
-    const from = group ? remoteJid : await resolveInboundJid(remoteJid);
+    const resolvedFrom = group ? remoteJid : await resolveInboundJid(remoteJid);
+    const from = resolvedFrom ?? remoteJid;
     if (!from) {
+      logInboundDrop("unresolved-from-jid", msg, { group });
       return null;
     }
     const senderE164 = group
@@ -208,6 +233,7 @@ export async function monitorWebInbox(options: {
     const access = await checkInboundAccessControl({
       accountId: options.accountId,
       from,
+      fromResolved: Boolean(resolvedFrom),
       selfE164,
       senderE164,
       group,
@@ -219,6 +245,12 @@ export async function monitorWebInbox(options: {
       remoteJid,
     });
     if (!access.allowed) {
+      logInboundDrop("access-control-blocked", msg, {
+        group,
+        from,
+        senderE164,
+        accessReason: access.reason ?? null,
+      });
       return null;
     }
 
@@ -273,6 +305,7 @@ export async function monitorWebInbox(options: {
     if (!body) {
       body = extractMediaPlaceholder(msg.message ?? undefined);
       if (!body) {
+        logInboundDrop("no-text-or-supported-media", msg);
         return null;
       }
     }

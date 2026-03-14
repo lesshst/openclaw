@@ -59,9 +59,10 @@ vi.mock("node:net", () => ({
 
 vi.mock("./proxy-env.js", () => ({
   hasEnvHttpProxyConfigured: vi.fn(() => false),
+  hasProxyEnvConfigured: vi.fn(() => false),
 }));
 
-import { hasEnvHttpProxyConfigured } from "./proxy-env.js";
+import { hasEnvHttpProxyConfigured, hasProxyEnvConfigured } from "./proxy-env.js";
 import {
   DEFAULT_UNDICI_STREAM_TIMEOUT_MS,
   ensureGlobalUndiciEnvProxyDispatcher,
@@ -73,9 +74,16 @@ describe("ensureGlobalUndiciStreamTimeouts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetGlobalUndiciStreamTimeoutsForTests();
+    vi.stubEnv("HTTP_PROXY", "");
+    vi.stubEnv("HTTPS_PROXY", "");
+    vi.stubEnv("ALL_PROXY", "");
+    vi.stubEnv("http_proxy", "");
+    vi.stubEnv("https_proxy", "");
+    vi.stubEnv("all_proxy", "");
     setCurrentDispatcher(new Agent());
     getDefaultAutoSelectFamily.mockReturnValue(undefined);
     vi.mocked(hasEnvHttpProxyConfigured).mockReturnValue(false);
+    vi.mocked(hasProxyEnvConfigured).mockReturnValue(false);
   });
 
   it("replaces default Agent dispatcher with extended stream timeouts", () => {
@@ -96,6 +104,8 @@ describe("ensureGlobalUndiciStreamTimeouts", () => {
 
   it("replaces EnvHttpProxyAgent dispatcher while preserving env-proxy mode", () => {
     getDefaultAutoSelectFamily.mockReturnValue(false);
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:7897");
+    vi.mocked(hasProxyEnvConfigured).mockReturnValue(true);
     setCurrentDispatcher(new EnvHttpProxyAgent());
 
     ensureGlobalUndiciStreamTimeouts();
@@ -105,6 +115,41 @@ describe("ensureGlobalUndiciStreamTimeouts", () => {
     expect(next).toBeInstanceOf(EnvHttpProxyAgent);
     expect(next.options?.bodyTimeout).toBe(DEFAULT_UNDICI_STREAM_TIMEOUT_MS);
     expect(next.options?.headersTimeout).toBe(DEFAULT_UNDICI_STREAM_TIMEOUT_MS);
+    expect(next.options?.connect).toEqual({
+      autoSelectFamily: false,
+      autoSelectFamilyAttemptTimeout: 300,
+    });
+  });
+
+  it("upgrades the default Agent to EnvHttpProxyAgent when proxy env is configured", () => {
+    getDefaultAutoSelectFamily.mockReturnValue(true);
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:7897");
+    vi.mocked(hasProxyEnvConfigured).mockReturnValue(true);
+
+    ensureGlobalUndiciStreamTimeouts();
+
+    expect(setGlobalDispatcher).toHaveBeenCalledTimes(1);
+    const next = getCurrentDispatcher() as { options?: Record<string, unknown> };
+    expect(next).toBeInstanceOf(EnvHttpProxyAgent);
+    expect(next.options?.bodyTimeout).toBe(DEFAULT_UNDICI_STREAM_TIMEOUT_MS);
+    expect(next.options?.headersTimeout).toBe(DEFAULT_UNDICI_STREAM_TIMEOUT_MS);
+    expect(next.options?.connect).toEqual({
+      autoSelectFamily: true,
+      autoSelectFamilyAttemptTimeout: 300,
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it("downgrades EnvHttpProxyAgent back to Agent when proxy env is cleared", () => {
+    getDefaultAutoSelectFamily.mockReturnValue(false);
+    setCurrentDispatcher(new EnvHttpProxyAgent());
+    vi.mocked(hasProxyEnvConfigured).mockReturnValue(false);
+
+    ensureGlobalUndiciStreamTimeouts();
+
+    expect(setGlobalDispatcher).toHaveBeenCalledTimes(1);
+    const next = getCurrentDispatcher() as { options?: Record<string, unknown> };
+    expect(next).toBeInstanceOf(Agent);
     expect(next.options?.connect).toEqual({
       autoSelectFamily: false,
       autoSelectFamilyAttemptTimeout: 300,

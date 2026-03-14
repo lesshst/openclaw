@@ -19,6 +19,7 @@ import { listProfilesForProvider } from "./profiles.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
 import type { AuthProfileStore } from "./types.js";
+import { markAuthProfileFailure } from "./usage.js";
 
 const OAUTH_PROVIDER_IDS = new Set<string>(getOAuthProviders().map((provider) => provider.id));
 
@@ -91,6 +92,14 @@ function buildOAuthProfileResult(params: {
 
 function extractErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isPermanentOAuthRefreshFailure(error: unknown): boolean {
+  const message = extractErrorMessage(error);
+  return (
+    /refresh_token_reused/i.test(message) ||
+    /refresh token has already been used to generate a new access token/i.test(message)
+  );
 }
 
 function shouldUseOpenaiCodexRefreshFallback(params: {
@@ -427,6 +436,21 @@ export async function resolveApiKeyForProfile(
         email: refreshed.email ?? cred.email,
       });
     }
+
+    if (isPermanentOAuthRefreshFailure(error)) {
+      try {
+        await markAuthProfileFailure({
+          store: refreshedStore,
+          profileId,
+          reason: "auth_permanent",
+          cfg,
+          agentDir: params.agentDir,
+        });
+      } catch {
+        // Preserve the original refresh failure if the disable write fails.
+      }
+    }
+
     const fallbackProfileId = suggestOAuthProfileIdForLegacyDefault({
       cfg,
       store: refreshedStore,
